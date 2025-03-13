@@ -1,0 +1,191 @@
+---
+description: spring
+globs: *.java
+alwaysApply: false
+---
+# Spring boot rules
+Eres un arquitecto de software con muchos años de experiencia en Java con Spring boot y experto en microservicios
+- Escribe código legible y mantenible para un proyecto en Java con Spring Boot, que sigan las buenas prácticas de programación orientadas a objetos.
+- Los cors siempre se manejan en un paquete config.
+- Usa lombok, pero ten en cuenta los buenos principios para crear models en java spring boot, por ejemplo, que se use un hashcode solo para la primary key, y de igual manera un constructor solo para la primary key, tambien crea el equals y lo demás se usaría la notación @Getter y @Setter, @NoArgsConstructor @ToString.
+- No uses map ni hashmap en los controllers, usa DTOs.
+- No uses un throw en los controllers, usa excepciones.
+- Usa feign para consumir servicios externos.
+- Usa JPA para persistir datos en la base de datos.
+- En los repositorios, jamás uses queries @Query ni @Modifying, usa los métodos de JPA para las consultas.
+- También especifica los logs con slf4j.
+- Usa siempre runtimeexception para las excepciones, y crea una excepción personalizada para cada error.
+- Siempre sigue la buena práctica de programación de usar BigDecimal para los precios y cantidades o cosas similares que sean números.
+- Sigue las directivas de OpenAPI para las anotaciones de los endpoints.
+- Las apis tanbien deben hacer suso de PATCH cuando sea necesario y no solo PUT.
+- Sigue siempre estas reglas para las apis:
+Usar nombres de recursos (sustantivos) en la URL
+
+Incorrecto: GET /querycarts/123
+Correcto: GET /carts/123
+Utilizar nombres en plural para los endpoints
+
+Incorrecto: GET /cart/123
+Correcto: GET /carts/123
+Mantener la idempotencia (evitar que la misma petición se ejecute múltiples veces involuntariamente)
+
+Incorrecto: POST /carts (sin identificar la operación o requestId)
+Correcto: POST /carts { "requestId": 4321 }
+Versionar la API cuando haya cambios importantes
+
+Incorrecto: GET /carts/v1/123 (mala ubicación de la versión)
+Correcto: GET /v1/carts/123
+Permitir consultas sobre recursos “suavemente” eliminados (soft delete)
+
+Incorrecto: GET /carts (no incluye registros eliminados)
+Correcto: GET /carts?includeDeleted=true
+Implementar paginación para grandes listados
+
+Incorrecto: GET /carts (sin parámetros de paginación)
+Correcto: GET /carts?pageSize=xx&pageToken=xx
+Permitir ordenamiento (sorting) en las consultas
+
+Incorrecto: GET /items (no permite especificar el orden)
+Correcto: GET /items?sort_by=time
+Habilitar filtrado para obtener resultados específicos
+
+Incorrecto: GET /items (sin filtros)
+Correcto: GET /items?filter=color:red
+
+Sigue estos ejemplos para construir el código:
+
+- DTOs, que tenga las validaciones de OpenAPI y que solo tenga lo necesario:
+package com.banquito.cards.comision.controller.dto;
+```java
+import jakarta.validation.constraints.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
+
+@Data
+@NoArgsConstructor
+public class ComisionDTO {
+    private Integer codigo;
+
+    @NotBlank(message = "El tipo es requerido")
+    @Pattern(regexp = "POR|FIJ", message = "El tipo debe ser POR o FIJ")
+    private String tipo;
+
+    @NotNull(message = "El monto base es requerido")
+    @DecimalMin(value = "0.0", message = "El monto base no puede ser negativo")
+    @DecimalMax(value = "999999999.9999", message = "El monto base excede el límite permitido")
+    private BigDecimal montoBase;
+
+    @NotNull(message = "El número de transacciones base es requerido")
+    @Min(value = 0, message = "El número de transacciones base no puede ser negativo")
+    private Integer transaccionesBase;
+
+    @NotNull(message = "El campo maneja segmentos es requerido")
+    private Boolean manejaSegmentos;
+}
+```
+- Controllers, puedes guiarte de este ejemplo:
+```java
+package com.banquito.core.cardaccount.controller;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.banquito.core.cardaccount.controller.dto.CardAccountDTO;
+import com.banquito.core.cardaccount.controller.mapper.CardAccountMapperNew;
+import com.banquito.core.cardaccount.exception.NotFoundException;
+import com.banquito.core.cardaccount.model.CardAccount;
+import com.banquito.core.cardaccount.service.CardAccountService;
+
+import io.micrometer.core.ipc.http.HttpSender.Response;
+
+
+@RestController
+@RequestMapping("/v1/cardaccounts")
+public class CardAccountController {
+
+    private final CardAccountService service;
+    private final CardAccountMapperNew mapper;
+
+    public CardAccountController(CardAccountService service, CardAccountMapperNew mapper) {
+        this.service = service;
+        this.mapper = mapper;
+    }
+
+    @GetMapping
+    public ResponseEntity<List<CardAccountDTO>> getAllCardAccounts() {
+        List<CardAccount> accounts = this.service.findAll();
+        List<CardAccountDTO> dtos = new ArrayList<>(accounts.size());
+        
+        for (CardAccount ca : accounts) {
+            dtos.add(mapper.toDTO(ca));
+        }
+        return ResponseEntity.ok(dtos);
+    }
+
+    @GetMapping("/{a}")
+    public ResponseEntity<CardAccountDTO> getCardAccountById(@PathVariable("a") String id) {
+        try {
+            CardAccount ca = this.service.findById(id);
+            return ResponseEntity.ok(this.mapper.toDTO(ca));
+        } catch (NotFoundException nfe) {
+            System.err.println(nfe.getMessage());
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @GetMapping("/accountnumber/{accountnumber}")
+    public ResponseEntity<CardAccountDTO> getCardAccountByNumber(@PathVariable("accountnumber") String accountNumber) {
+        CardAccount ca = this.service.findByAccountNumber(accountNumber);
+        return ResponseEntity.ok(this.mapper.toDTO(ca));
+    }
+
+    @ExceptionHandler({NotFoundException.class})
+    public ResponseEntity notFound() {
+        System.err.println("No encotro");
+        return ResponseEntity.notFound().build();
+    }
+
+
+
+}
+```
+
+ Exepciones, siempre recuerda poner las Exepciones en el paquete de exception y que herede de RuntimeException, sigue el ejemplo:
+ ```java
+ package com.banquito.core.cardaccount.exception;
+
+public class NotFoundException extends RuntimeException{
+
+    private final String data;
+    private final String entity;
+
+    public NotFoundException(String data, String entity) {
+        super();
+        this.data = data;
+        this.entity = entity;
+    }
+
+    @Override
+    public String getMessage() {
+        return "No se encontro ninguna coincidencia para: "+this.entity+", con el dato:"+data;
+    }
+}
+```
+- El proyecto debe estructurarse de la siguiente forma como en el ejemplo 
+controller/
+│── dto/
+│── mapper/
+│── PaqueteController
+exception/
+model/
+service/
+config/ (configuraciones de open api o cors)
+client/ (openfeign)
